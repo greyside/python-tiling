@@ -1,0 +1,17 @@
+
+Copyrights:
+
+This software was orginally written for my client Mark Smillie, who has given me, Seán Hayes, permission to open source it under a BSD license. I have continued work on it under the employ of my new client, Sudo.
+
+Mark Smillie - Orignal Owner
+Seán Hayes [http://seanhayes.name/] - Author, Maintainer
+Sudo, Inc. [http://gosudo.com/] - Contributor
+
+Further reading:
+
+http://janmatuschek.de/LatitudeLongitudeBoundingCoordinates
+
+Right now we calc boxes the "wrong way", though it's compensated for in other ways. It might be nice to eventually offer other ways to split up the earth's surface.
+
+https://github.com/GoogleCloudPlatform/appengine-24hrsinsf-python/blob/master/geobox.py
+

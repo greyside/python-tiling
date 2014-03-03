@@ -1,0 +1,8 @@
+*.pyc
+*.pyo
+*.log
+.pydevproject
+.project
+*~
+dist/
+*.egg-info/
