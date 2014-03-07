@@ -30,7 +30,8 @@ setup(name='bounding-boxes',
 		package_name,
 	],
 	include_package_data=True,
-	install_requires=['https://github.com/SeanHayes/dmath/archive/master.zip',],
+	install_requires=['dmath',],
+	dependency_links=['https://github.com/SeanHayes/dmath/archive/master.zip#egg=dmath-0.9'],
 	test_suite = '%s.tests' % package_name,
 )
 
