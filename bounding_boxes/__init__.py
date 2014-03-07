@@ -1,8 +1,12 @@
 #Python imports
 from decimal import Decimal
-import dmath
 import itertools
 import logging
+
+try:
+    import dmath
+except ImportError:
+    dmath = None
 
 VERSION = (0, 1, 0)
 
@@ -188,22 +192,24 @@ class BoxGen(object):
         
         return boxes
     
-    def filter_radius(self, iterable, latitude, longitude, radius):
+    def filter_radius(self, iterable, latitude, longitude, radius, coor_func=None):
         """
         Filter out results not in a circular radius.
         """
         
-        for p_lat, p_lon in iterable:
+        for item in iterable:
+            p_lat, p_lon = item if not coor_func else coor_func(item)
             if self.distance(p_lat, p_lon, latitude, longitude) < radius:
                 yield p_lat, p_lon
     
-    def filter_rectangle(self, iterable, latitude, longitude, width, height):
+    def filter_rectangle(self, iterable, latitude, longitude, width, height, coor_func=None):
         """
         Filter out results not in a rectangle.
         """
         lat_south, lon_west, lat_north, lon_east = self.miles_rectangle(latitude, longitude, width, height)
         
-        for p_lat, p_lon in iterable:
+        for item in iterable:
+            p_lat, p_lon = item if not coor_func else coor_func(item)
             if lat_south <= p_lat <= lat_north and lon_west < p_lon < lon_east:
                 yield p_lat, p_lon
 
