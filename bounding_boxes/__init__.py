@@ -11,14 +11,19 @@ __version__ = "".join([".".join(map(str, VERSION[0:3])), "".join(VERSION[3:])])
 #TODO: make sure to handle wrap around 0 and 180 degrees
 
 class BoxGen(object):
-    # NM == Nautical Mile
-    KM_PER_MILE  = '1.609344'
-    NM_PER_LAT   = '60.00721'
-    NM_PER_LONG  = '60.10793'
-    MILES_PER_NM = '1.15078'
+    UNIT_MI = 'mi' # Miles
+    UNIT_NM = 'nm' # Nautical Mile
+    UNIT_KM = 'km' # Kilometers
+    
+    NM_PER_LAT = '60.00721'
+    NM_PER_LON = '60.10793'
+    KM_PER_MI  = '1.609344'
+    MI_PER_NM  = '1.150779'
     
     
+    #TODO: allow choice between mi/km in constructor
     def __init__(self,
+          #unit=UNIT_MI,
           num_class=Decimal,
           math_module=dmath,
           coordinate_decimal_places=7,
@@ -31,10 +36,10 @@ class BoxGen(object):
         self.radius_decimal_places = radius_decimal_places
         self.quantize = quantize
         
-        self.half = num_class('0.5')
-        
         self.coordinate_quantizer = num_class('0.1') ** self.coordinate_decimal_places
         self.radius_quantizer = num_class('0.1') ** self.radius_decimal_places
+        
+        self.half = num_class('0.5')
         
         self.ceil = math_module.ceil
         self.floor = math_module.floor
@@ -44,27 +49,35 @@ class BoxGen(object):
         
         self.RAD = self.pi / num_class('180.0')
         
-        self.KM_PER_MILE  = num_class(self.KM_PER_MILE)
-        self.NM_PER_LAT   = num_class(self.NM_PER_LAT)
-        self.NM_PER_LONG  = num_class(self.NM_PER_LONG)
-        self.MILES_PER_NM = num_class(self.MILES_PER_NM)
+        self.unit = self.UNIT_MI
         
-        #frequently used math fragment
-        self._rangePartial = self.MILES_PER_NM * num_class('60.0')
+        self.KM_PER_MI    = num_class(self.KM_PER_MI)
+        self.NM_PER_LAT   = num_class(self.NM_PER_LAT)
+        self.NM_PER_LON  = num_class(self.NM_PER_LON)
+        self.MI_PER_NM    = num_class(self.MI_PER_NM)
+        self.KM_PER_NM    = self.MI_PER_NM * self.KM_PER_MI
+        
+        
+        
+        # frequently used math fragment
+        self._range_partial = self.MI_PER_NM * num_class('60.0')
     
     def get_box_centerpoint_for_coordinates(self, lat, lon, box_radius):
+        """
+        Normalizes a location to the nearest bounding box center point.
+        """
         floor = self.floor
         half = self.half
         coordinate_quantizer = self.coordinate_quantizer
-        _rangePartial = self._rangePartial
+        _range_partial = self._range_partial
         
-        latWidth = 2 * box_radius / _rangePartial
+        lat_width = 2 * box_radius / _range_partial
         
-        lat = (floor(lat/latWidth) + half) * latWidth
+        lat = (floor(lat/lat_width) + half) * lat_width
         
-        lonWidth = 2 * box_radius / (self.cos(lat * self.RAD) * _rangePartial)
+        lon_width = 2 * box_radius / (self.cos(lat * self.RAD) * _range_partial)
         
-        lon = (floor(lon/lonWidth) + half) * lonWidth
+        lon = (floor(lon/lon_width) + half) * lon_width
         
         
         if self.quantize:
@@ -73,42 +86,47 @@ class BoxGen(object):
         
         return lat, lon
     
-    def calc_distance(self, lat1, lon1, lat2, lon2):
+    def distance(self, lat1, lon1, lat2, lon2):
         """
-        Caclulate distance between two lat lons in NM
+        Caclulate distance between two lat lons in miles.
         """
         cos = self.cos
         RAD = self.RAD
         
         yDistance = (lat2 - lat1) * self.NM_PER_LAT
-        xDistance = (cos(lat1 * RAD) + cos(lat2 * RAD)) * (lon2 - lon1) * (self.NM_PER_LONG / 2)
+        xDistance = (cos(lat1 * RAD) + cos(lat2 * RAD)) * (lon2 - lon1) * (self.NM_PER_LON / 2)
         
         distance = (xDistance**2 + yDistance**2).sqrt()
         
         return distance * self.MILES_PER_NM
     
-    def calc_miles_box(self, lat, lon, radius):
-        """
-        Returns two lat/lon pairs as (lat1, lon2, lat2, lon2) which define a box that
-        surrounds a circle of radius of the given amount in miles.
-        """
-        _rangePartial = self._rangePartial
+    def miles_rectangle(self, lat, lon, width, height):
+        _range_partial = self._range_partial
         
-        latRange = radius / _rangePartial
-        lonRange = radius / (self.cos(lat * self.RAD) * _rangePartial)
+        latRange = height / _range_partial
+        #FIXME: this likely has gaps and/or overlaps. A more accurate method might involve unit offsets from (0, 0)
+        lonRange = width / (self.cos(lat * self.RAD) * _range_partial)
         
         return (lat - latRange, lon - lonRange, lat + latRange, lon + lonRange,)
     
-    def calc_offset(self, lat, lon, lat_mi_offset=0, lon_mi_offset=0):
-        _rangePartial = self._rangePartial
+    def miles_box(self, lat, lon, radius):
+        """
+        Returns two lat/lon pairs as (lat-south, lon-west, lat-north, lon-east)
+        which define a box that surrounds a circle of radius of the given amount
+        in the specified units.
+        """
+        return self.miles_rectangle(lat, lon, radius, radius)
+    
+    def offset(self, lat, lon, lat_mi_offset=0, lon_mi_offset=0):
+        _range_partial = self._range_partial
         
-        latRange = lat_mi_offset / _rangePartial
-        lonRange = lon_mi_offset / (self.cos(lat * self.RAD) * _rangePartial)
+        latRange = lat_mi_offset / _range_partial
+        lonRange = lon_mi_offset / (self.cos(lat * self.RAD) * _range_partial)
         
         return lat + latRange, lon + lonRange
     
     #TODO: could be useful for testing, turning center points to bounding boxes and back
-#    def calc_bounding_box_center_point(point_pairs):
+#    def bounding_box_center_point(point_pairs):
 #        #just averaging should be fine for now
 #        length = len(point_pairs)
 #        
@@ -121,24 +139,29 @@ class BoxGen(object):
 #        
 #        return lat/length, lon/length
     
-    def calc_coor_offset_pairs(self, latitude, longitude, search_box_radius, max_box_radius):
+    def offset_coor_pairs(self, latitude, longitude, search_box_radius, max_box_radius):
+        """
+        search_box_radius - the total radius to be searched
+        max_box_radius - the max size of a bounding box
+        """
         offsets = set()
         tmp_offset = 0
         
         while tmp_offset < search_box_radius:
             offsets.add(tmp_offset)
             offsets.add(-tmp_offset)
+            # the max_box_radius is actually half the width of the box, hence *2
             tmp_offset += max_box_radius * 2
         
         offset_pairs = itertools.product(offsets, repeat=2)
         pairs = []
         
-        calc_offset = self.calc_offset
+        offset = self.offset
         coordinate_quantizer = self.coordinate_quantizer
         quantize = self.quantize
         
-        for lat_mi_offset, lon_mi_offset in offset_pairs:
-            lat, lon = calc_offset(latitude, longitude, lat_mi_offset, lon_mi_offset)
+        for lat_unit_offset, lon_unit_offset in offset_pairs:
+            lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
             
             if quantize:
                 lat = lat.quantize(coordinate_quantizer)
@@ -148,9 +171,39 @@ class BoxGen(object):
         
         return pairs
     
-    def calc_num_offset_pairs(self, latitude, longitude, search_box_radius, max_box_radius):
+    def offset_pairs_num(self, latitude, longitude, search_box_radius, max_box_radius):
         # this function proceeds a little differently since it's not assembling a set
         # (0 and -0 only gets stored once)
         num = (2 * self.ceil(self.num_class(search_box_radius) / (2 * self.num_class(max_box_radius)))) - 1
         return num**2
+    
+    def offset_boxes(self, latitude, longitude, search_box_radius, max_box_radius):
+        pairs = self.offset_coor_pairs(latitude, longitude, search_box_radius, max_box_radius)
+        
+        boxes = []
+        
+        for pair_latitude, pair_longitude in pairs:
+            box = self.miles_box(pair_latitude, pair_longitude, max_box_radius)
+            boxes.append(box)
+        
+        return boxes
+    
+    def filter_radius(self, iterable, latitude, longitude, radius):
+        """
+        Filter out results not in a circular radius.
+        """
+        
+        for p_lat, p_lon in iterable:
+            if self.distance(p_lat, p_lon, latitude, longitude) < radius:
+                yield p_lat, p_lon
+    
+    def filter_rectangle(self, iterable, latitude, longitude, width, height):
+        """
+        Filter out results not in a rectangle.
+        """
+        lat_south, lon_west, lat_north, lon_east = self.miles_rectangle(latitude, longitude, width, height)
+        
+        for p_lat, p_lon in iterable:
+            if lat_south <= p_lat <= lat_north and lon_west < p_lon < lon_east:
+                yield p_lat, p_lon
 
