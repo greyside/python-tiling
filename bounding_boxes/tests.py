@@ -17,8 +17,10 @@ class BaseTestCase(TestCase):
         self.precision = num_class('0.0000000000001')
     
     def assertCloseEnough(self, val1, val2):
-        # we actually tend to get equal numbers when using floats, but slightly different decimals
-        self.assertLess(abs(val1-val2), self.precision, msg='%s and %s are not close.' % (val1, val2,))
+        try:
+            self.assertEqual(val1, val2)
+        except AssertionError:
+            self.assertLess(abs(val1-val2), self.precision, msg='%s and %s are not close.' % (val1, val2,))
     
     def assertBoxesTouch(self, boxes):
         # geo-order should be:
