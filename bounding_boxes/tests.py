@@ -14,7 +14,7 @@ class BaseTestCase(TestCase):
         self.london    = (num_class('51.5171'), num_class('-0.1062'),)
         self.northpole = (num_class('0'), num_class('90'),)
         
-        self.precision = num_class('0.0000001')
+        self.precision = num_class('0.0000000000001')
     
     def assertCloseEnough(self, val1, val2):
         # we actually tend to get equal numbers when using floats, but slightly different decimals
@@ -150,7 +150,7 @@ class DecimalTestCase(BaseTestCase, BaseMethods):
 
 class FloatTestCase(BaseTestCase, BaseMethods):
     def setUp(self):
-        self.box_gen = BoxGen(num_class=float, math_module=math, quantize=False)
+        self.box_gen = BoxGen(num_class=float, math_module=math)
         
         super(FloatTestCase, self).setUp()
 

@@ -1,3 +1,5 @@
+from __future__ import division
+
 #Python imports
 from decimal import Decimal
 import itertools
@@ -19,29 +21,25 @@ class BoxGen(object):
     UNIT_NM = 'nm' # Nautical Mile
     UNIT_KM = 'km' # Kilometers
     
-    NM_PER_LAT = '60.00721'
-    NM_PER_LON = '60.10793'
     KM_PER_MI  = '1.609344'
     MI_PER_NM  = '1.150779'
+    
+    NM_PER_LAT = '60.00721'
+    NM_PER_LON = '60.10793'
     
     
     #TODO: allow choice between mi/km in constructor
     def __init__(self,
-          #unit=UNIT_MI,
+          unit=UNIT_MI,
           num_class=Decimal,
           math_module=dmath,
           coordinate_decimal_places=7,
-          radius_decimal_places=3,
-          quantize=True
+          radius_decimal_places=3
         ):
         self.num_class = num_class
         self.math_module = math_module
         self.coordinate_decimal_places = coordinate_decimal_places
         self.radius_decimal_places = radius_decimal_places
-        self.quantize = quantize
-        
-        self.coordinate_quantizer = num_class('0.1') ** self.coordinate_decimal_places
-        self.radius_quantizer = num_class('0.1') ** self.radius_decimal_places
         
         self.half = num_class('0.5')
         
@@ -53,18 +51,25 @@ class BoxGen(object):
         
         self.RAD = self.pi / num_class('180.0')
         
-        self.unit = self.UNIT_MI
+        self.unit = unit
         
-        self.KM_PER_MI    = num_class(self.KM_PER_MI)
-        self.NM_PER_LAT   = num_class(self.NM_PER_LAT)
-        self.NM_PER_LON  = num_class(self.NM_PER_LON)
-        self.MI_PER_NM    = num_class(self.MI_PER_NM)
-        self.KM_PER_NM    = self.MI_PER_NM * self.KM_PER_MI
+        self.KM_PER_MI  = num_class(self.KM_PER_MI)
+        self.NM_PER_LAT = num_class(self.NM_PER_LAT)
+        self.NM_PER_LON = num_class(self.NM_PER_LON)
+        self.MI_PER_NM  = num_class(self.MI_PER_NM)
+        self.KM_PER_NM  = self.MI_PER_NM * self.KM_PER_MI
         
         
+        if unit == self.UNIT_MI:
+            self.units_per_nm = self.MI_PER_NM
+        elif unit == self.UNIT_KM:
+            self.units_per_nm = self.KM_PER_NM
+        else:
+            # Default to nautical miles
+            self.units_per_nm = num_class('1')
         
         # frequently used math fragment
-        self._range_partial = self.MI_PER_NM * num_class('60.0')
+        self._range_partial = self.units_per_nm * num_class('60.0')
     
     def get_box_centerpoint_for_coordinates(self, lat, lon, box_radius):
         """
@@ -72,7 +77,6 @@ class BoxGen(object):
         """
         floor = self.floor
         half = self.half
-        coordinate_quantizer = self.coordinate_quantizer
         _range_partial = self._range_partial
         
         lat_width = 2 * box_radius / _range_partial
@@ -83,16 +87,11 @@ class BoxGen(object):
         
         lon = (floor(lon/lon_width) + half) * lon_width
         
-        
-        if self.quantize:
-            lat = lat.quantize(coordinate_quantizer)
-            lon = lon.quantize(coordinate_quantizer)
-        
         return lat, lon
     
     def distance(self, lat1, lon1, lat2, lon2):
         """
-        Caclulate distance between two lat lons in miles.
+        Caclulate distance between two lat lons in units.
         """
         cos = self.cos
         RAD = self.RAD
@@ -102,9 +101,9 @@ class BoxGen(object):
         
         distance = (xDistance**2 + yDistance**2).sqrt()
         
-        return distance * self.MILES_PER_NM
+        return distance * self.units_per_nm
     
-    def miles_rectangle(self, lat, lon, width, height):
+    def units_rectangle(self, lat, lon, width, height):
         _range_partial = self._range_partial
         
         latRange = height / _range_partial
@@ -113,13 +112,13 @@ class BoxGen(object):
         
         return (lat - latRange, lon - lonRange, lat + latRange, lon + lonRange,)
     
-    def miles_box(self, lat, lon, radius):
+    def units_box(self, lat, lon, radius):
         """
         Returns two lat/lon pairs as (lat-south, lon-west, lat-north, lon-east)
         which define a box that surrounds a circle of radius of the given amount
         in the specified units.
         """
-        return self.miles_rectangle(lat, lon, radius, radius)
+        return self.units_rectangle(lat, lon, radius, radius)
     
     def offset(self, lat, lon, lat_mi_offset=0, lon_mi_offset=0):
         _range_partial = self._range_partial
@@ -161,15 +160,9 @@ class BoxGen(object):
         pairs = []
         
         offset = self.offset
-        coordinate_quantizer = self.coordinate_quantizer
-        quantize = self.quantize
         
         for lat_unit_offset, lon_unit_offset in offset_pairs:
             lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
-            
-            if quantize:
-                lat = lat.quantize(coordinate_quantizer)
-                lon = lon.quantize(coordinate_quantizer)
             
             pairs.append((lat, lon,))
         
@@ -187,7 +180,7 @@ class BoxGen(object):
         boxes = []
         
         for pair_latitude, pair_longitude in pairs:
-            box = self.miles_box(pair_latitude, pair_longitude, max_box_radius)
+            box = self.units_box(pair_latitude, pair_longitude, max_box_radius)
             boxes.append(box)
         
         return boxes
@@ -206,10 +199,11 @@ class BoxGen(object):
         """
         Filter out results not in a rectangle.
         """
-        lat_south, lon_west, lat_north, lon_east = self.miles_rectangle(latitude, longitude, width, height)
+        lat_south, lon_west, lat_north, lon_east = self.units_rectangle(latitude, longitude, width, height)
         
         for item in iterable:
             p_lat, p_lon = item if not coor_func else coor_func(item)
+            #TODO: handle wrap around
             if lat_south <= p_lat <= lat_north and lon_west < p_lon < lon_east:
                 yield p_lat, p_lon
 
