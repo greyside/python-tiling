@@ -8,6 +8,8 @@ Sudo, Inc. [http://gosudo.com/] - Contributor
 
 Further reading:
 
+http://williams.best.vwh.net/avform.htm
+
 http://janmatuschek.de/LatitudeLongitudeBoundingCoordinates
 
 Right now we calc boxes the "wrong way", though it's compensated for in other ways. It might be nice to eventually offer other ways to split up the earth's surface.

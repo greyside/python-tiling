@@ -9,33 +9,85 @@ class BaseTestCase(TestCase):
     def setUp(self):
         num_class = self.box_gen.num_class
         
-        self.rochester = (num_class('43.1553'), num_class('-77.6090'),)
-        self.zerozero  = (num_class('0'), num_class('0'),)
-        self.london    = (num_class('51.5171'), num_class('-0.1062'),)
-        self.northpole = (num_class('0'), num_class('90'),)
+        self.num_class = num_class
         
-        self.precision = num_class('0.0000000000001')
+        #TODO: handle international date line
+        self.locations = {
+            'rochester': (num_class('43.1553'), num_class('-77.6090'),),
+            'london'   : (num_class('51.5171'), num_class('-0.1062'),),
+#            'equator'  : (num_class('0'), num_class('90'),),
+#            '0-0' : (num_class('0'), num_class('0'),),#also on the equator
+#            '0-1' : (num_class('0'), num_class('1'),),
+            '1-1' : (num_class('1'), num_class('1'),),
+            '10-10' : (num_class('10'), num_class('10'),),
+#            'intldateline'  : (num_class('180'), num_class('0'),),
+#            'intldateline2'  : (num_class('-180'), num_class('0'),),
+#            'nearnorthpole': (num_class('89.9999'), num_class('0'),),
+#            'nearsouthpole': (num_class('-89.9999'), num_class('0'),),
+#            'northpole': (num_class('90'), num_class('0'),),
+#            'southpole': (num_class('-90'), num_class('0'),),
+        }
+        
+        self.precision = num_class('0.000001')
     
-    def assertCloseEnough(self, val1, val2):
+    def assertCloseEnough(self, val1, val2, lat=None, precision=None):
         try:
             self.assertEqual(val1, val2)
         except AssertionError:
-            self.assertLess(abs(val1-val2), self.precision, msg='%s and %s are not close.' % (val1, val2,))
+            # give a rough estimate of the magnitude of the difference
+            if lat is not None:
+                dist = self.box_gen.distance(lat, val1, lat, val2)
+            else:
+                dist = self.box_gen.distance(val1, 0, val2, 0)
+            
+            self.assertLess(abs(val1-val2), precision or self.precision, msg='%r and %r are not close enough. About %s %s apart (lat: %s).' % (val1, val2, dist, self.box_gen.unit, lat,))
     
-    def assertBoxesTouch(self, boxes):
-        # geo-order should be:
-        # 7-6-8
-        # 1-0-2
-        # 4-3-5
+    def assertBoxesTouch(self, boxes, nwidth, nheight):
+        box_len = len(boxes)
         
-        self.assertCloseEnough(boxes[0][0], boxes[3][2])
-        self.assertCloseEnough(boxes[0][1], boxes[1][3])
-        self.assertCloseEnough(boxes[0][2], boxes[6][0])
-        self.assertCloseEnough(boxes[0][3], boxes[2][1])
+        self.assertEqual(box_len, nwidth * nheight)
+        # geo-order should be:
+        # 6-7-8
+        # 3-4-5
+        # 0-1-2
+        
+        max_row_pos = nwidth - 1
+        
+#        for i, box in enumerate(boxes):
+#            print i, i % nwidth, box
+        
+        for i, box in enumerate(boxes):
+            
+            n_idx = i+nwidth
+            e_idx = i+1
+            s_idx = i-nwidth
+            w_idx = i-1
+            
+            row_pos = i % nwidth
+            
+            if n_idx < box_len:
+                self.assertCloseEnough(box[0], boxes[n_idx][2])
+            if not row_pos == max_row_pos:
+                self.assertCloseEnough(box[1], boxes[e_idx][3], lat=box[0])
+            if s_idx > nwidth:
+                self.assertCloseEnough(box[2], boxes[s_idx][0])
+            if not row_pos == 0:
+                self.assertCloseEnough(box[3], boxes[w_idx][1], lat=box[0])
 
 class BaseMethods(object):
+    def test__distance__lax_to_jfk(self):
+        # from http://williams.best.vwh.net/avform.htm#Example
+        lax = self.num_class('33.95'), self.num_class('-118.4')
+        jfk = self.num_class('40.6333'), self.num_class('-73.7833')
+        
+        d1 = self.box_gen.distance(lax[0], lax[1], jfk[0], jfk[1])
+        d2 = self.box_gen.distance(jfk[0], jfk[1], lax[0], lax[1])
+        
+        self.assertCloseEnough(d1, self.num_class('2467.270176'), precision=1)
+        self.assertEqual(d1, d2)
+    
     def test__offset__returns_same_vals(self):
-        lat, lon = self.rochester
+        lat, lon = self.locations['rochester']
         
         new_lat, new_lon = self.box_gen.offset(lat, lon)
         
@@ -43,106 +95,141 @@ class BaseMethods(object):
         self.assertEqual(lon, new_lon)
     
     def test__offset__returns_incremented_vals(self):
-        lat, lon = self.rochester
+        lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.box_gen.offset(lat, lon, lat_mi_offset=1, lon_mi_offset=1)
+        new_lat, new_lon = self.box_gen.offset(lat, lon, lat_unit_offset=1, lon_unit_offset=1)
         
         self.assertLess(lat, new_lat)
         self.assertLess(lon, new_lon)
     
     def test__offset__returns_decremented_vals(self):
-        lat, lon = self.rochester
+        lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.box_gen.offset(lat, lon, lat_mi_offset=-1, lon_mi_offset=-1)
+        new_lat, new_lon = self.box_gen.offset(lat, lon, lat_unit_offset=-1, lon_unit_offset=-1)
         
         self.assertGreater(lat, new_lat)
         self.assertGreater(lon, new_lon)
     
-    def test__offset_pairs_num__same_length_as_original_func__rochester(self):
-        lat, lon = self.rochester
-        search_box_radius = 5
-        max_box_radius = 2
+    def test__offset__multiple_transforms(self):
+        lat, lon = self.locations['rochester']
         
-        num = self.box_gen.offset_pairs_num(lat, lon, search_box_radius, max_box_radius)
-        pairs = self.box_gen.offset_coor_pairs(lat, lon, search_box_radius, max_box_radius)
+        new_lat, new_lon = self.box_gen.offset(lat, lon, lat_unit_offset=-3, lon_unit_offset=-3)
         
-        self.assertEqual(num, len(pairs))
+        new_lat2, new_lon2 = self.box_gen.offset(new_lat, new_lon, lat_unit_offset=3, lon_unit_offset=3)
+        
+        self.assertCloseEnough(lat, new_lat2, precision=self.num_class('0.0001'))
+        self.assertCloseEnough(lon, new_lon2, precision=self.num_class('0.0001'), lat=lat)
     
-    def test__offset_pairs_num__same_length_as_original_func__rochester__high_search_box_radius(self):
-        lat, lon = self.rochester
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_pairs_num__same_length_as_original_func(self):
+        search_box_radius = self.num_class(5)
+        max_box_radius = self.num_class(2)
         
-        num = self.box_gen.offset_pairs_num(lat, lon, search_box_radius, max_box_radius)
-        pairs = self.box_gen.offset_coor_pairs(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertEqual(num, len(pairs))
+        for location_name, coors in self.locations.items():
+            args = (coors[0], coors[1], width, height, max_box_radius,)
+            
+            num = self.box_gen.offset_pairs_num(*args)
+            pairs = self.box_gen.offset_coor_pairs(*args)
+            
+            self.assertEqual(num, len(pairs))
     
-    def test__offset_pairs_num__same_length_as_original_func__origin__high_search_box_radius(self):
-        lat, lon = self.zerozero
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_pairs_num__same_length_as_original_func__equal_search_and_box_size(self):
+        search_box_radius = self.num_class(4)
+        max_box_radius = self.num_class(4)
         
-        num = self.box_gen.offset_pairs_num(lat, lon, search_box_radius, max_box_radius)
-        pairs = self.box_gen.offset_coor_pairs(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertEqual(num, len(pairs))
+        for location_name, coors in self.locations.items():
+            args = (coors[0], coors[1], width, height, max_box_radius,)
+            
+            num = self.box_gen.offset_pairs_num(*args)
+            pairs = self.box_gen.offset_coor_pairs(*args)
+            
+            self.assertEqual(num, len(pairs))
     
-    def test__offset_pairs_num__same_length_as_original_func__north_pole__high_search_box_radius(self):
-        lat, lon = self.northpole
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_pairs_num__same_length_as_original_func__box_size_is_divisor_of_search(self):
+        search_box_radius = self.num_class(4)
+        max_box_radius = self.num_class(2)
         
-        num = self.box_gen.offset_pairs_num(lat, lon, search_box_radius, max_box_radius)
-        pairs = self.box_gen.offset_coor_pairs(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertEqual(num, len(pairs))
+        for location_name, coors in self.locations.items():
+            args = (coors[0], coors[1], width, height, max_box_radius,)
+            
+            num = self.box_gen.offset_pairs_num(*args)
+            pairs = self.box_gen.offset_coor_pairs(*args)
+            
+            self.assertEqual(num, len(pairs))
     
-    def test__offset_pairs_num__same_length_as_original_func__london(self):
-        lat, lon = self.london
-        search_box_radius = 15
-        max_box_radius = 2
+    def test__offset_pairs_num__same_length_as_original_func__search_smaller_than_box_size(self):
+        search_box_radius = self.num_class(3)
+        max_box_radius = self.num_class(4)
         
-        num = self.box_gen.offset_pairs_num(lat, lon, search_box_radius, max_box_radius)
-        pairs = self.box_gen.offset_coor_pairs(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertEqual(num, len(pairs))
+        for location_name, coors in self.locations.items():
+            args = (coors[0], coors[1], width, height, max_box_radius,)
+            
+            num = self.box_gen.offset_pairs_num(*args)
+            pairs = self.box_gen.offset_coor_pairs(*args)
+            
+            self.assertEqual(num, len(pairs))
     
-    def test__offset_boxes__borders_touch__rochester(self):
-        lat, lon = self.rochester
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_pairs_num__same_length_as_original_func__bigger_search_box_radius(self):
+        search_box_radius = self.num_class(7)
+        max_box_radius = self.num_class(2)
         
-        boxes = self.box_gen.offset_boxes(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertBoxesTouch(boxes)
+        for location_name, coors in self.locations.items():
+            args = (coors[0], coors[1], width, height, max_box_radius,)
+            
+            num = self.box_gen.offset_pairs_num(*args)
+            pairs = self.box_gen.offset_coor_pairs(*args)
+            
+            self.assertEqual(num, len(pairs))
     
-    def test__offset_boxes__borders_touch__london(self):
-        lat, lon = self.london
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_boxes__borders_touch(self):
+        search_box_radius = self.num_class(7)
+        max_box_radius = self.num_class(2)
         
-        boxes = self.box_gen.offset_boxes(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertBoxesTouch(boxes)
+        for location_name, coors in self.locations.items():
+            boxes = self.box_gen.offset_boxes(coors[0], coors[1], width, height, max_box_radius)
+            
+            self.assertBoxesTouch(boxes, 5, 5)
     
-    def test__offset_boxes__borders_touch__northpole(self):
-        lat, lon = self.northpole
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_boxes__borders_touch__fewer_boxes(self):
+        search_box_radius = self.num_class(7)
+        max_box_radius = self.num_class(3)
         
-        boxes = self.box_gen.offset_boxes(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertBoxesTouch(boxes)
+        for location_name, coors in self.locations.items():
+            boxes = self.box_gen.offset_boxes(coors[0], coors[1], width, height, max_box_radius)
+            
+            self.assertBoxesTouch(boxes, 3, 3)
     
-    def test__offset_boxes__borders_touch__zerozero(self):
-        lat, lon = self.zerozero
-        search_box_radius = 7
-        max_box_radius = 2
+    def test__offset_boxes__nearby_centerpoints_reuse_boxes__rochester(self):
+        search_box_radius = self.num_class(7)
+        max_box_radius = self.num_class(3)
         
-        boxes = self.box_gen.offset_boxes(lat, lon, search_box_radius, max_box_radius)
+        width = height = search_box_radius * 2
         
-        self.assertBoxesTouch(boxes)
+        lat1, lon1 = self.locations['rochester']
+        
+        # 6 miles north, 6 miles east
+        lat2, lon2 = self.box_gen.offset(lat1, lon1, lat_unit_offset=6, lon_unit_offset=6)
+        
+        boxes1 = self.box_gen.offset_boxes(lat1, lon1, width, height, max_box_radius)
+        boxes2 = self.box_gen.offset_boxes(lat2, lon2, width, height, max_box_radius)
+        
+        self.assertEqual(boxes1[8], boxes2[4])
+        self.assertEqual(boxes1[7], boxes2[3])
+        self.assertEqual(boxes1[5], boxes2[1])
+        self.assertEqual(boxes1[4], boxes2[0])
 
 class DecimalTestCase(BaseTestCase, BaseMethods):
     def setUp(self):
