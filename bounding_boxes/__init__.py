@@ -1,20 +1,15 @@
 from __future__ import division
 
 #Python imports
-from decimal import Decimal
 import itertools
 import logging
-
-try:
-    import dmath
-except ImportError:
-    dmath = None
+import math
 
 VERSION = (0, 1, 0)
 
 __version__ = "".join([".".join(map(str, VERSION[0:3])), "".join(VERSION[3:])])
 
-#TODO: make sure to handle wrap around 0 and 180 degrees
+#TODO: make sure to handle 0, 180, and -180 degrees
 
 class BoxGen(object):
     UNIT_MI = 'mi' # Miles
@@ -31,15 +26,11 @@ class BoxGen(object):
     #TODO: allow choice between mi/km in constructor
     def __init__(self,
           unit=UNIT_MI,
-          num_class=Decimal,
-          math_module=dmath,
-          coordinate_decimal_places=7,
-          radius_decimal_places=3
+          num_class=float,
+          math_module=math,
         ):
         self.num_class = num_class
         self.math_module = math_module
-        self.coordinate_decimal_places = coordinate_decimal_places
-        self.radius_decimal_places = radius_decimal_places
         
         self.half = num_class('0.5')
         
@@ -58,7 +49,6 @@ class BoxGen(object):
         self.NM_PER_LON = num_class(self.NM_PER_LON)
         self.MI_PER_NM  = num_class(self.MI_PER_NM)
         self.KM_PER_NM  = self.MI_PER_NM * self.KM_PER_MI
-        
         
         if unit == self.UNIT_MI:
             self.units_per_nm = self.MI_PER_NM

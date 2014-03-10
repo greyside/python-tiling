@@ -1,7 +1,11 @@
 #Python imports
 from decimal import Decimal
-import math
 from unittest import TestCase
+
+try:
+    import dmath
+except ImportError:
+    dmath = None
 
 from . import BoxGen
 
@@ -231,15 +235,16 @@ class BaseMethods(object):
         self.assertEqual(boxes1[5], boxes2[1])
         self.assertEqual(boxes1[4], boxes2[0])
 
-class DecimalTestCase(BaseTestCase, BaseMethods):
-    def setUp(self):
-        self.box_gen = BoxGen()
-        
-        super(DecimalTestCase, self).setUp()
+if dmath:
+    class DecimalTestCase(BaseTestCase, BaseMethods):
+        def setUp(self):
+            self.box_gen = BoxGen(num_class=Decimal, math_module=dmath)
+            
+            super(DecimalTestCase, self).setUp()
 
 class FloatTestCase(BaseTestCase, BaseMethods):
     def setUp(self):
-        self.box_gen = BoxGen(num_class=float, math_module=math)
+        self.box_gen = BoxGen()
         
         super(FloatTestCase, self).setUp()
 
