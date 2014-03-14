@@ -1,3 +1,5 @@
+Generates a set of adjacent tiles, which can be used for organizing DB results in a cache.
+
 Copyrights:
 
 This software was orginally written for my client Mark Smillie, who has given me, Seán Hayes, permission to open source it under a BSD license. I have continued work on it under the employ of my new client, Sudo.
@@ -6,7 +8,7 @@ Mark Smillie [https://twitter.com/msmillie] - Orignal Owner
 Seán Hayes [http://seanhayes.name/] - Author, Maintainer
 Sudo, Inc. [http://gosudo.com/] - Contributor
 
-Further reading:
+Notes/Further reading:
 
 http://williams.best.vwh.net/avform.htm
 

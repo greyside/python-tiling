@@ -44,6 +44,11 @@ class BoxGen(object):
         
         self.unit = unit
         
+        self.MAX_LAT = num_class('90')
+        self.MIN_LAT = num_class('-90')
+        self.MAX_LON = num_class('180')
+        self.MIN_LON = num_class('-180')
+        
         self.KM_PER_MI  = num_class(self.KM_PER_MI)
         self.NM_PER_LAT = num_class(self.NM_PER_LAT)
         self.NM_PER_LON = num_class(self.NM_PER_LON)
@@ -61,6 +66,20 @@ class BoxGen(object):
         # frequently used math fragment
         self._range_partial = self.units_per_nm * num_class('60.0')
     
+    def fix_lat(self, val):
+        if val > self.MAX_LAT:
+            return self.MAX_LAT
+        if val < self.MIN_LAT:
+            return self.MIN_LAT
+        return val
+    
+    def fix_lon(self, val):
+        if val > self.MAX_LON:
+            return self.MIN_LON + (val % self.MAX_LON)
+        if val < self.MIN_LON:
+            return self.MAX_LON + (val % self.MIN_LON)
+        return val
+    
     def get_box_centerpoint_for_coordinates(self, lat, lon, box_radius):
         """
         Normalizes a location to the nearest bounding box center point.
@@ -71,11 +90,15 @@ class BoxGen(object):
         
         lat_width = self.offset_lat(2 * box_radius)
         
-        lat = (floor(lat/lat_width) + half) * lat_width
+        lat_offset = floor(lat/lat_width) + half
+        
+        lat = self.fix_lat(lat_offset * lat_width)
         
         lon_width = 2 * box_radius / (self.cos(lat * self.RAD) * _range_partial)
         
-        lon = (floor(lon/lon_width) + half) * lon_width
+        lon_offset = floor(lon/lon_width) + half
+        
+        lon = self.fix_lon(lon_offset * lon_width)
         
         return lat, lon
     
@@ -114,15 +137,15 @@ class BoxGen(object):
         )
         
         # move to new latitude before adjusting east/west position
-        new_lat = lat + lat_range
+        new_lat = self.fix_lat(lat + lat_range)
         
         lon_range = self.offset_lon(
             new_lat,
             unit_offset=lon_unit_offset
         )
-        return new_lat, lon + lon_range
+        return new_lat, self.fix_lon(lon + lon_range)
     
-    def units_rectangle(self, lat, lon, width, height):
+    def units_rectangle(self, lat, lon, height, width):
         # NOTE: these "rectangles" will be wider at the bottom than the top if
         # north of the equator, or vice versa if south. It's a necessary evil,
         # since if they were the same width top and bottom there's be gaps and
@@ -137,7 +160,8 @@ class BoxGen(object):
             unit_offset=width/2
         )
         
-        return lat + lat_range, lon + lon_range, lat - lat_range, lon - lon_range
+        ret = self.fix_lat(lat + lat_range), self.fix_lon(lon + lon_range), self.fix_lat(lat - lat_range), self.fix_lon(lon - lon_range)
+        return ret
     
     def units_box(self, lat, lon, radius):
         """
@@ -162,33 +186,29 @@ class BoxGen(object):
 #        
 #        return lat/length, lon/length
     
-    def offset_coor_pairs(self, latitude, longitude, width, height, max_box_radius):
+    def offset_coor_pairs(self, latitude, longitude, height, width, max_box_radius):
         """
         max_box_radius - the max size of a bounding box
         """
-        #FIXME: points north and south of this lat and lon are not normalized
-        width_offsets = set()
+        # we normalize lat, lon here before calcing offsets, and then we normalize
+        # the lat, lon offset pairs later. Just doing it on the pairs should work,
+        # but at certain extreme coors tiny differences emerge that cause an offset
+        # to get nromalized to the wrong tile.
+        latitude, longitude = self.get_box_centerpoint_for_coordinates(latitude, longitude, max_box_radius)
+        
         height_offsets = set()
+        width_offsets = set()
         
         # the max_box_radius is actually half the height of the box, hence *2
         max_box_wh = max_box_radius * 2
         
-        tmp_width_offset = 0
         tmp_height_offset = 0
+        tmp_width_offset = 0
         
         # since the offsets represent bounding box center points, the boxes generated
-        # form those points will include an area up to max_box_radius away.
-        width_offset_needed = (width / 2) - max_box_radius
+        # from those points will include an area up to max_box_radius away.
         height_offset_needed = (height / 2) - max_box_radius
-        
-        while True:
-            width_offsets.add(tmp_width_offset)
-            width_offsets.add(-tmp_width_offset)
-            
-            if tmp_width_offset < width_offset_needed:
-                tmp_width_offset += max_box_wh
-            else:
-                break
+        width_offset_needed = (width / 2) - max_box_radius
         
         while True:
             height_offsets.add(tmp_height_offset)
@@ -199,14 +219,26 @@ class BoxGen(object):
             else:
                 break
         
-        offset_pairs = itertools.product(sorted(width_offsets), sorted(height_offsets))
+        while True:
+            width_offsets.add(tmp_width_offset)
+            width_offsets.add(-tmp_width_offset)
+            
+            if tmp_width_offset < width_offset_needed:
+                tmp_width_offset += max_box_wh
+            else:
+                break
+        
+        height_offsets = sorted(height_offsets)
+        width_offsets = sorted(width_offsets)
+        
+        offset_pairs = itertools.product(height_offsets, width_offsets)
         pairs = []
         
         offset = self.offset
         
         for lat_unit_offset, lon_unit_offset in offset_pairs:
-            
             lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
+            
             
             # normalize coordinates. boxes north and south of center box will be slightly shifted
             # FIXME: this hack works in most cases, but there are instances where the boxes on diff latitudes will be too drastically shifted from the center box, especially as we get further from the center box, plus we may end up fetching more boxes than are really needed. A better solution would be to get the center box for each latitude needed, then work sideways from each of those, fetching east/west adjacent boxes as needed. This will also help avoid us fetching extra boxes in cases where the original search coords are near the edge of the center box, and adjacent boxes near the opposite edge aren't needed.
@@ -216,7 +248,7 @@ class BoxGen(object):
         
         return pairs
     
-    def offset_pairs_num(self, latitude, longitude, width, height, max_box_radius):
+    def offset_pairs_num(self, latitude, longitude, height, width, max_box_radius):
         # this function proceeds a little differently since it's not assembling a set
         # (0 and -0 only gets stored once)
         width_offset_needed = (width / 2) - max_box_radius
@@ -229,14 +261,16 @@ class BoxGen(object):
         
         return num_boxes_wide * num_boxes_high
     
-    def offset_boxes(self, latitude, longitude, width, height, max_box_radius):
-        pairs = self.offset_coor_pairs(latitude, longitude, width, height, max_box_radius)
-        
+    def offset_boxes(self, latitude, longitude, height, width, max_box_radius):
+        pairs = self.offset_coor_pairs(latitude, longitude, height, width, max_box_radius)
         boxes = []
         
         for pair_latitude, pair_longitude in pairs:
             box = self.units_box(pair_latitude, pair_longitude, max_box_radius)
             boxes.append(box)
+        
+#        for i, p in enumerate(pairs):
+#            print i, p, boxes[i]
         
         return boxes
     
@@ -250,11 +284,11 @@ class BoxGen(object):
             if self.distance(p_lat, p_lon, latitude, longitude) < radius:
                 yield p_lat, p_lon
     
-    def filter_rectangle(self, iterable, latitude, longitude, width, height, coor_func=None):
+    def filter_rectangle(self, iterable, latitude, longitude, height, width, coor_func=None):
         """
         Filter out results not in a rectangle.
         """
-        lat_north, lon_east, lat_south, lon_west = self.units_rectangle(latitude, longitude, width, height)
+        lat_north, lon_east, lat_south, lon_west = self.units_rectangle(latitude, longitude, height, width)
         
         for item in iterable:
             p_lat, p_lon = item if not coor_func else coor_func(item)

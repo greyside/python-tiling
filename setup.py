@@ -22,7 +22,7 @@ setup(name='bounding-boxes',
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Libraries :: Python Modules"
     ],
-    keywords='django configuration generator',
+    keywords='gis geo bounding box',
     url='http://seanhayes.name/',
     download_url='https://github.com/SeanHayes/bounding-boxes',
     license='BSD',
