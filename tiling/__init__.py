@@ -11,7 +11,7 @@ __version__ = "".join([".".join(map(str, VERSION[0:3])), "".join(VERSION[3:])])
 
 #TODO: make sure to handle 0, 180, and -180 degrees
 
-class BoxGen(object):
+class Tiler(object):
     UNIT_MI = 'mi' # Miles
     UNIT_NM = 'nm' # Nautical Mile
     UNIT_KM = 'km' # Kilometers
@@ -25,12 +25,21 @@ class BoxGen(object):
     
     #TODO: allow choice between mi/km in constructor
     def __init__(self,
+          max_box_radius,
           unit=UNIT_MI,
           num_class=float,
           math_module=math,
+          
         ):
+        """
+        max_box_radius - the max size of a tile
+        """
         self.num_class = num_class
         self.math_module = math_module
+        
+        self.max_box_radius = num_class(max_box_radius)
+        # the max_box_radius is actually half the height of the tile, hence *2
+        self.max_box_wh = self.max_box_radius * 2
         
         self.half = num_class('0.5')
         
@@ -80,10 +89,11 @@ class BoxGen(object):
             return self.MAX_LON + (val % self.MIN_LON)
         return val
     
-    def get_box_centerpoint_for_coordinates(self, lat, lon, box_radius):
+    def get_box_centerpoint_for_coordinates(self, lat, lon):
         """
-        Normalizes a location to the nearest bounding box center point.
+        Normalizes a location to the nearest tile center point.
         """
+        box_radius = self.max_box_radius
         floor = self.floor
         half = self.half
         _range_partial = self._range_partial
@@ -172,8 +182,8 @@ class BoxGen(object):
         l = radius * 2
         return self.units_rectangle(lat, lon, l, l)
     
-    #TODO: could be useful for testing, turning center points to bounding boxes and back
-#    def bounding_box_center_point(point_pairs):
+    #TODO: could be useful for testing, turning center points to tiles and back
+#    def tile_center_point(point_pairs):
 #        #just averaging should be fine for now
 #        length = len(point_pairs)
 #        
@@ -186,26 +196,23 @@ class BoxGen(object):
 #        
 #        return lat/length, lon/length
     
-    def offset_coor_pairs(self, latitude, longitude, height, width, max_box_radius):
-        """
-        max_box_radius - the max size of a bounding box
-        """
+    def offset_coor_pairs(self, latitude, longitude, height, width):
         # we normalize lat, lon here before calcing offsets, and then we normalize
         # the lat, lon offset pairs later. Just doing it on the pairs should work,
         # but at certain extreme coors tiny differences emerge that cause an offset
         # to get nromalized to the wrong tile.
-        latitude, longitude = self.get_box_centerpoint_for_coordinates(latitude, longitude, max_box_radius)
+        max_box_radius = self.max_box_radius
+        max_box_wh = self.max_box_wh
+        
+        latitude, longitude = self.get_box_centerpoint_for_coordinates(latitude, longitude)
         
         height_offsets = set()
         width_offsets = set()
         
-        # the max_box_radius is actually half the height of the box, hence *2
-        max_box_wh = max_box_radius * 2
-        
         tmp_height_offset = 0
         tmp_width_offset = 0
         
-        # since the offsets represent bounding box center points, the boxes generated
+        # since the offsets represent tile center points, the boxes generated
         # from those points will include an area up to max_box_radius away.
         height_offset_needed = (height / 2) - max_box_radius
         width_offset_needed = (width / 2) - max_box_radius
@@ -239,16 +246,16 @@ class BoxGen(object):
         for lat_unit_offset, lon_unit_offset in offset_pairs:
             lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
             
-            
             # normalize coordinates. boxes north and south of center box will be slightly shifted
             # FIXME: this hack works in most cases, but there are instances where the boxes on diff latitudes will be too drastically shifted from the center box, especially as we get further from the center box, plus we may end up fetching more boxes than are really needed. A better solution would be to get the center box for each latitude needed, then work sideways from each of those, fetching east/west adjacent boxes as needed. This will also help avoid us fetching extra boxes in cases where the original search coords are near the edge of the center box, and adjacent boxes near the opposite edge aren't needed.
-            lat, lon = self.get_box_centerpoint_for_coordinates(lat, lon, max_box_radius)
+            lat, lon = self.get_box_centerpoint_for_coordinates(lat, lon)
             
             pairs.append((lat, lon,))
         
         return pairs
     
-    def offset_pairs_num(self, latitude, longitude, height, width, max_box_radius):
+    def offset_pairs_num(self, latitude, longitude, height, width):
+        max_box_radius = self.max_box_radius
         # this function proceeds a little differently since it's not assembling a set
         # (0 and -0 only gets stored once)
         width_offset_needed = (width / 2) - max_box_radius
@@ -261,16 +268,14 @@ class BoxGen(object):
         
         return num_boxes_wide * num_boxes_high
     
-    def offset_boxes(self, latitude, longitude, height, width, max_box_radius):
-        pairs = self.offset_coor_pairs(latitude, longitude, height, width, max_box_radius)
+    def offset_boxes(self, latitude, longitude, height, width):
+        max_box_radius = self.max_box_radius
+        pairs = self.offset_coor_pairs(latitude, longitude, height, width)
         boxes = []
         
         for pair_latitude, pair_longitude in pairs:
             box = self.units_box(pair_latitude, pair_longitude, max_box_radius)
             boxes.append(box)
-        
-#        for i, p in enumerate(pairs):
-#            print i, p, boxes[i]
         
         return boxes
     

@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup
-import bounding_boxes
+import tiling
 
-package_name = 'bounding_boxes'
+package_name = 'tiling'
 
-setup(name='bounding-boxes',
-    version=bounding_boxes.__version__,
-    description="Generates geographic bounding boxes, which can be useful for caching geospatial queries..",
+setup(name='python-tiling',
+    version=tiling.__version__,
+    description="Geographic tiling library for Python.",
     author='Seán Hayes',
     author_email='sean@seanhayes.name',
     classifiers=[
@@ -22,9 +22,9 @@ setup(name='bounding-boxes',
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Libraries :: Python Modules"
     ],
-    keywords='gis geo bounding box',
+    keywords='gis geo tiling bounding box',
     url='http://seanhayes.name/',
-    download_url='https://github.com/SeanHayes/bounding-boxes',
+    download_url='https://github.com/SeanHayes/python-tiling',
     license='BSD',
     packages=[
         package_name,
