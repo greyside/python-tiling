@@ -12,6 +12,127 @@ __version__ = "".join([".".join(map(str, VERSION[0:3])), "".join(VERSION[3:])])
 #TODO: make sure to handle 0, 180, and -180 degrees
 
 class Tiler(object):
+    def __init__(self, geo_helper, max_tile_wh):
+        """
+        max_tile_wh - the max width/height of a tile
+        """
+        self.geo_helper = geo_helper
+        
+        self.max_tile_wh = self.geo_helper.num_class(max_tile_wh)
+        # the max_box_radius is half the height of the tile
+        self.max_tile_radius = self.max_tile_wh / 2
+    
+    def get_box_centerpoint_for_coordinates(self, lat, lon):
+        """
+        Normalizes a location to the nearest tile center point.
+        """
+        tile_radius = self.max_tile_radius
+        geo_helper = self.geo_helper
+        floor = geo_helper.floor
+        half = geo_helper.half
+        _range_partial = geo_helper._range_partial
+        
+        lat_width = geo_helper.offset_lat(2 * tile_radius)
+        
+        lat_offset = floor(lat/lat_width) + half
+        
+        lat = geo_helper.fix_lat(lat_offset * lat_width)
+        
+        lon_width = 2 * tile_radius / (geo_helper.cos(lat * geo_helper.RAD) * _range_partial)
+        
+        lon_offset = floor(lon/lon_width) + half
+        
+        lon = geo_helper.fix_lon(lon_offset * lon_width)
+        
+        return lat, lon
+    
+    def offset_coor_pairs(self, latitude, longitude, height, width):
+        # we normalize lat, lon here before calcing offsets, and then we normalize
+        # the lat, lon offset pairs later. Just doing it on the pairs should work,
+        # but at certain extreme coors tiny differences emerge that cause an offset
+        # to get nromalized to the wrong tile.
+        max_tile_radius = self.max_tile_radius
+        max_tile_wh = self.max_tile_wh
+        
+        latitude, longitude = self.get_box_centerpoint_for_coordinates(latitude, longitude)
+        
+        height_offsets = set()
+        width_offsets = set()
+        
+        tmp_height_offset = 0
+        tmp_width_offset = 0
+        
+        # since the offsets represent tile center points, the boxes generated
+        # from those points will include an area up to max_tile_radius away.
+        height_offset_needed = (height / 2) - max_tile_radius
+        width_offset_needed = (width / 2) - max_tile_radius
+        
+        while True:
+            height_offsets.add(tmp_height_offset)
+            height_offsets.add(-tmp_height_offset)
+            
+            if tmp_height_offset < height_offset_needed:
+                tmp_height_offset += max_tile_wh
+            else:
+                break
+        
+        while True:
+            width_offsets.add(tmp_width_offset)
+            width_offsets.add(-tmp_width_offset)
+            
+            if tmp_width_offset < width_offset_needed:
+                tmp_width_offset += max_tile_wh
+            else:
+                break
+        
+        height_offsets = sorted(height_offsets)
+        width_offsets = sorted(width_offsets)
+        
+        offset_pairs = itertools.product(height_offsets, width_offsets)
+        pairs = []
+        
+        offset = self.geo_helper.offset
+        
+        for lat_unit_offset, lon_unit_offset in offset_pairs:
+            lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
+            
+            # normalize coordinates. boxes north and south of center box will be slightly shifted
+            # FIXME: this hack works in most cases, but there are instances where the boxes on diff latitudes will be too drastically shifted from the center box, especially as we get further from the center box, plus we may end up fetching more boxes than are really needed. A better solution would be to get the center box for each latitude needed, then work sideways from each of those, fetching east/west adjacent boxes as needed. This will also help avoid us fetching extra boxes in cases where the original search coords are near the edge of the center box, and adjacent boxes near the opposite edge aren't needed.
+            lat, lon = self.get_box_centerpoint_for_coordinates(lat, lon)
+            
+            pairs.append((lat, lon,))
+        
+        return pairs
+    
+    def offset_pairs_num(self, latitude, longitude, height, width):
+        max_tile_radius = self.max_tile_radius
+        ceil = self.geo_helper.ceil
+        # this function proceeds a little differently since it's not assembling a set
+        # (0 and -0 only gets stored once)
+        width_offset_needed = (width / 2) - max_tile_radius
+        height_offset_needed = (height / 2) - max_tile_radius
+        
+        max_box_wh = max_tile_radius * 2
+        
+        num_boxes_wide = (2*ceil((width_offset_needed / max_box_wh)) + 1)
+        num_boxes_high = (2*ceil((height_offset_needed / max_box_wh)) + 1)
+        
+        return num_boxes_wide * num_boxes_high
+    
+    def offset_boxes(self, latitude, longitude, height, width):
+        max_tile_radius = self.max_tile_radius
+        pairs = self.offset_coor_pairs(latitude, longitude, height, width)
+        box_func = self.geo_helper.box
+        
+        boxes = []
+        
+        for pair_latitude, pair_longitude in pairs:
+            box = box_func(pair_latitude, pair_longitude, max_tile_radius)
+            boxes.append(box)
+        
+        return boxes
+
+class GeoHelper(object):
     UNIT_MI = 'mi' # Miles
     UNIT_NM = 'nm' # Nautical Mile
     UNIT_KM = 'km' # Kilometers
@@ -25,21 +146,13 @@ class Tiler(object):
     
     #TODO: allow choice between mi/km in constructor
     def __init__(self,
-          max_box_radius,
           unit=UNIT_MI,
           num_class=float,
           math_module=math,
           
         ):
-        """
-        max_box_radius - the max size of a tile
-        """
         self.num_class = num_class
         self.math_module = math_module
-        
-        self.max_box_radius = num_class(max_box_radius)
-        # the max_box_radius is actually half the height of the tile, hence *2
-        self.max_box_wh = self.max_box_radius * 2
         
         self.half = num_class('0.5')
         
@@ -75,6 +188,12 @@ class Tiler(object):
         # frequently used math fragment
         self._range_partial = self.units_per_nm * num_class('60.0')
     
+    def tiler(self, max_tile_wh):
+        """
+        max_tile_wh - the max width/height of a tile
+        """
+        return Tiler(self, max_tile_wh)
+    
     def fix_lat(self, val):
         if val > self.MAX_LAT:
             return self.MAX_LAT
@@ -88,29 +207,6 @@ class Tiler(object):
         if val < self.MIN_LON:
             return self.MAX_LON + (val % self.MIN_LON)
         return val
-    
-    def get_box_centerpoint_for_coordinates(self, lat, lon):
-        """
-        Normalizes a location to the nearest tile center point.
-        """
-        box_radius = self.max_box_radius
-        floor = self.floor
-        half = self.half
-        _range_partial = self._range_partial
-        
-        lat_width = self.offset_lat(2 * box_radius)
-        
-        lat_offset = floor(lat/lat_width) + half
-        
-        lat = self.fix_lat(lat_offset * lat_width)
-        
-        lon_width = 2 * box_radius / (self.cos(lat * self.RAD) * _range_partial)
-        
-        lon_offset = floor(lon/lon_width) + half
-        
-        lon = self.fix_lon(lon_offset * lon_width)
-        
-        return lat, lon
     
     def distance(self, lat1, lon1, lat2, lon2):
         """
@@ -155,7 +251,7 @@ class Tiler(object):
         )
         return new_lat, self.fix_lon(lon + lon_range)
     
-    def units_rectangle(self, lat, lon, height, width):
+    def rectangle(self, lat, lon, height, width):
         # NOTE: these "rectangles" will be wider at the bottom than the top if
         # north of the equator, or vice versa if south. It's a necessary evil,
         # since if they were the same width top and bottom there's be gaps and
@@ -173,14 +269,14 @@ class Tiler(object):
         ret = self.fix_lat(lat + lat_range), self.fix_lon(lon + lon_range), self.fix_lat(lat - lat_range), self.fix_lon(lon - lon_range)
         return ret
     
-    def units_box(self, lat, lon, radius):
+    def box(self, lat, lon, radius):
         """
         Returns two lat/lon pairs as (lat-south, lon-west, lat-north, lon-east)
         which define a box that surrounds a circle of radius of the given amount
         in the specified units.
         """
         l = radius * 2
-        return self.units_rectangle(lat, lon, l, l)
+        return self.rectangle(lat, lon, l, l)
     
     #TODO: could be useful for testing, turning center points to tiles and back
 #    def tile_center_point(point_pairs):
@@ -196,89 +292,6 @@ class Tiler(object):
 #        
 #        return lat/length, lon/length
     
-    def offset_coor_pairs(self, latitude, longitude, height, width):
-        # we normalize lat, lon here before calcing offsets, and then we normalize
-        # the lat, lon offset pairs later. Just doing it on the pairs should work,
-        # but at certain extreme coors tiny differences emerge that cause an offset
-        # to get nromalized to the wrong tile.
-        max_box_radius = self.max_box_radius
-        max_box_wh = self.max_box_wh
-        
-        latitude, longitude = self.get_box_centerpoint_for_coordinates(latitude, longitude)
-        
-        height_offsets = set()
-        width_offsets = set()
-        
-        tmp_height_offset = 0
-        tmp_width_offset = 0
-        
-        # since the offsets represent tile center points, the boxes generated
-        # from those points will include an area up to max_box_radius away.
-        height_offset_needed = (height / 2) - max_box_radius
-        width_offset_needed = (width / 2) - max_box_radius
-        
-        while True:
-            height_offsets.add(tmp_height_offset)
-            height_offsets.add(-tmp_height_offset)
-            
-            if tmp_height_offset < height_offset_needed:
-                tmp_height_offset += max_box_wh
-            else:
-                break
-        
-        while True:
-            width_offsets.add(tmp_width_offset)
-            width_offsets.add(-tmp_width_offset)
-            
-            if tmp_width_offset < width_offset_needed:
-                tmp_width_offset += max_box_wh
-            else:
-                break
-        
-        height_offsets = sorted(height_offsets)
-        width_offsets = sorted(width_offsets)
-        
-        offset_pairs = itertools.product(height_offsets, width_offsets)
-        pairs = []
-        
-        offset = self.offset
-        
-        for lat_unit_offset, lon_unit_offset in offset_pairs:
-            lat, lon = offset(latitude, longitude, lat_unit_offset, lon_unit_offset)
-            
-            # normalize coordinates. boxes north and south of center box will be slightly shifted
-            # FIXME: this hack works in most cases, but there are instances where the boxes on diff latitudes will be too drastically shifted from the center box, especially as we get further from the center box, plus we may end up fetching more boxes than are really needed. A better solution would be to get the center box for each latitude needed, then work sideways from each of those, fetching east/west adjacent boxes as needed. This will also help avoid us fetching extra boxes in cases where the original search coords are near the edge of the center box, and adjacent boxes near the opposite edge aren't needed.
-            lat, lon = self.get_box_centerpoint_for_coordinates(lat, lon)
-            
-            pairs.append((lat, lon,))
-        
-        return pairs
-    
-    def offset_pairs_num(self, latitude, longitude, height, width):
-        max_box_radius = self.max_box_radius
-        # this function proceeds a little differently since it's not assembling a set
-        # (0 and -0 only gets stored once)
-        width_offset_needed = (width / 2) - max_box_radius
-        height_offset_needed = (height / 2) - max_box_radius
-        
-        max_box_wh = max_box_radius * 2
-        
-        num_boxes_wide = (2*self.ceil((width_offset_needed / max_box_wh)) + 1)
-        num_boxes_high = (2*self.ceil((height_offset_needed / max_box_wh)) + 1)
-        
-        return num_boxes_wide * num_boxes_high
-    
-    def offset_boxes(self, latitude, longitude, height, width):
-        max_box_radius = self.max_box_radius
-        pairs = self.offset_coor_pairs(latitude, longitude, height, width)
-        boxes = []
-        
-        for pair_latitude, pair_longitude in pairs:
-            box = self.units_box(pair_latitude, pair_longitude, max_box_radius)
-            boxes.append(box)
-        
-        return boxes
-    
     def filter_radius(self, iterable, latitude, longitude, radius, coor_func=None):
         """
         Filter out results not in a circular radius.
@@ -293,7 +306,7 @@ class Tiler(object):
         """
         Filter out results not in a rectangle.
         """
-        lat_north, lon_east, lat_south, lon_west = self.units_rectangle(latitude, longitude, height, width)
+        lat_north, lon_east, lat_south, lon_west = self.rectangle(latitude, longitude, height, width)
         
         for item in iterable:
             p_lat, p_lon = item if not coor_func else coor_func(item)

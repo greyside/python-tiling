@@ -8,16 +8,17 @@ try:
 except ImportError:
     dmath = None
 
-from . import Tiler
+from . import GeoHelper
 
 class BaseTestCase(TestCase):
     @classmethod
     def setUpClass(cls):
         super(BaseTestCase, cls).setUpClass()
         num_class = cls.num_class
-        cls.tiler_2 = Tiler(num_class('2'), num_class=num_class, math_module=cls.math_module)
-        cls.tiler_3 = Tiler(num_class('3'), num_class=num_class, math_module=cls.math_module)
-        cls.tiler_4 = Tiler(num_class('4'), num_class=num_class, math_module=cls.math_module)
+        cls.geo_helper = GeoHelper(num_class=num_class, math_module=cls.math_module)
+        cls.tiler_4 = cls.geo_helper.tiler('4')
+        cls.tiler_6 = cls.geo_helper.tiler('6')
+        cls.tiler_8 = cls.geo_helper.tiler('8')
     
     def setUp(self):
         self.tiler = None
@@ -50,11 +51,11 @@ class BaseTestCase(TestCase):
         except AssertionError:
             # give a rough estimate of the magnitude of the difference
             if lat is not None:
-                dist = self.tiler.distance(lat, val1, lat, val2)
+                dist = self.geo_helper.distance(lat, val1, lat, val2)
             else:
-                dist = self.tiler.distance(val1, 0, val2, 0)
+                dist = self.geo_helper.distance(val1, 0, val2, 0)
             
-            self.assertLess(abs(val1-val2), precision or self.precision, msg='%r and %r are not close enough. About %s %s apart (lat: %s).' % (val1, val2, dist, self.tiler.unit, lat,))
+            self.assertLess(abs(val1-val2), precision or self.precision, msg='%r and %r are not close enough. About %s %s apart (lat: %s).' % (val1, val2, dist, self.geo_helper.unit, lat,))
     
     def assertBoxesTouch(self, boxes, nwidth, nheight):
         box_len = len(boxes)
@@ -89,78 +90,78 @@ class BaseTestCase(TestCase):
 
 class BaseMethods(object):
     def test__fix_lat__not_needed(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('33.95')
         
-        ret = self.tiler.fix_lat(val)
+        ret = self.geo_helper.fix_lat(val)
         
         self.assertEqual(ret, val)
     
     def test__fix_lat__too_big(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('90.0001')
         
-        ret = self.tiler.fix_lat(val)
+        ret = self.geo_helper.fix_lat(val)
         
         self.assertNotEqual(ret, val)
-        self.assertEqual(ret, self.tiler.MAX_LAT)
+        self.assertEqual(ret, self.geo_helper.MAX_LAT)
     
     def test__fix_lat__too_small(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('-90.0001')
         
-        ret = self.tiler.fix_lat(val)
+        ret = self.geo_helper.fix_lat(val)
         
         self.assertNotEqual(ret, val)
-        self.assertEqual(ret, self.tiler.MIN_LAT)
+        self.assertEqual(ret, self.geo_helper.MIN_LAT)
     
     def test__fix_lon__not_needed(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('40.6333')
         
-        ret = self.tiler.fix_lon(val)
+        ret = self.geo_helper.fix_lon(val)
         
         self.assertEqual(ret, val)
     
     def test__fix_lon__too_big(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('180.0001')
         
-        ret = self.tiler.fix_lon(val)
+        ret = self.geo_helper.fix_lon(val)
         
         self.assertNotEqual(ret, val)
         self.assertEqual(ret, self.num_class('-179.9999'))
     
     def test__fix_lon__too_small(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         val = self.num_class('-180.0001')
         
-        ret = self.tiler.fix_lon(val)
+        ret = self.geo_helper.fix_lon(val)
         
         self.assertNotEqual(ret, val)
         self.assertEqual(ret, self.num_class('179.9999'))
     
     def test__distance__lax_to_jfk(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         # from http://williams.best.vwh.net/avform.htm#Example
         lax = self.num_class('33.95'), self.num_class('-118.4')
         jfk = self.num_class('40.6333'), self.num_class('-73.7833')
         
-        d1 = self.tiler.distance(lax[0], lax[1], jfk[0], jfk[1])
-        d2 = self.tiler.distance(jfk[0], jfk[1], lax[0], lax[1])
+        d1 = self.geo_helper.distance(lax[0], lax[1], jfk[0], jfk[1])
+        d2 = self.geo_helper.distance(jfk[0], jfk[1], lax[0], lax[1])
         
         self.assertCloseEnough(d1, self.num_class('2467.270176'), precision=1)
         self.assertEqual(d1, d2)
     
     def test__get_box_centerpoint_for_coordinates__zerozero(self):
-        self.tiler = self.tiler_3
+        self.tiler = self.tiler_6
         
         lat, lon = self.locations['0-0']
         
@@ -170,7 +171,7 @@ class BaseMethods(object):
         self.assertCloseEnough(pair[1], self.num_class('0.0434488415034'))
     
     def test__get_box_centerpoint_for_coordinates__near_zerozero(self):
-        self.tiler = self.tiler_3
+        self.tiler = self.tiler_6
         
         lat, lon = (self.num_class('-0.087'), self.num_class('-0.087'))
         
@@ -180,49 +181,49 @@ class BaseMethods(object):
         self.assertCloseEnough(pair[1], self.num_class('-0.0434488415034')*3)
     
     def test__offset__returns_same_vals(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.tiler.offset(lat, lon)
+        new_lat, new_lon = self.geo_helper.offset(lat, lon)
         
         self.assertEqual(lat, new_lat)
         self.assertEqual(lon, new_lon)
     
     def test__offset__returns_incremented_vals(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.tiler.offset(lat, lon, lat_unit_offset=1, lon_unit_offset=1)
+        new_lat, new_lon = self.geo_helper.offset(lat, lon, lat_unit_offset=1, lon_unit_offset=1)
         
         self.assertLess(lat, new_lat)
         self.assertLess(lon, new_lon)
     
     def test__offset__returns_decremented_vals(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.tiler.offset(lat, lon, lat_unit_offset=-1, lon_unit_offset=-1)
+        new_lat, new_lon = self.geo_helper.offset(lat, lon, lat_unit_offset=-1, lon_unit_offset=-1)
         
         self.assertGreater(lat, new_lat)
         self.assertGreater(lon, new_lon)
     
     def test__offset__multiple_transforms(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         lat, lon = self.locations['rochester']
         
-        new_lat, new_lon = self.tiler.offset(lat, lon, lat_unit_offset=-3, lon_unit_offset=-3)
+        new_lat, new_lon = self.geo_helper.offset(lat, lon, lat_unit_offset=-3, lon_unit_offset=-3)
         
-        new_lat2, new_lon2 = self.tiler.offset(new_lat, new_lon, lat_unit_offset=3, lon_unit_offset=3)
+        new_lat2, new_lon2 = self.geo_helper.offset(new_lat, new_lon, lat_unit_offset=3, lon_unit_offset=3)
         
         self.assertCloseEnough(lat, new_lat2, precision=self.num_class('0.0001'))
         self.assertCloseEnough(lon, new_lon2, precision=self.num_class('0.0001'), lat=lat)
     
     def test__offset_pairs_num__same_length_as_original_func(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         search_box_radius = self.num_class(5)
         
@@ -252,7 +253,7 @@ class BaseMethods(object):
             self.assertEqual(num, len(pairs))
     
     def test__offset_pairs_num__same_length_as_original_func__box_size_is_divisor_of_search(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         search_box_radius = self.num_class(4)
         
@@ -282,7 +283,7 @@ class BaseMethods(object):
             self.assertEqual(num, len(pairs))
     
     def test__offset_pairs_num__same_length_as_original_func__bigger_search_box_radius(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         search_box_radius = self.num_class(7)
         
@@ -297,7 +298,7 @@ class BaseMethods(object):
             self.assertEqual(num, len(pairs))
     
     def test__offset_boxes__nearby_centerpoints_reuse_boxes__rochester(self):
-        self.tiler = self.tiler_3
+        self.tiler = self.tiler_6
         
         search_box_radius = self.num_class(7)
         
@@ -306,7 +307,7 @@ class BaseMethods(object):
         lat1, lon1 = self.locations['rochester']
         
         # 6 miles north, 6 miles east
-        lat2, lon2 = self.tiler.offset(lat1, lon1, lat_unit_offset=6, lon_unit_offset=6)
+        lat2, lon2 = self.geo_helper.offset(lat1, lon1, lat_unit_offset=6, lon_unit_offset=6)
         
         boxes1 = self.tiler.offset_boxes(lat1, lon1, height, width,)
         boxes2 = self.tiler.offset_boxes(lat2, lon2, height, width,)
@@ -317,7 +318,7 @@ class BaseMethods(object):
         self.assertEqual(boxes1[4], boxes2[0])
     
     def test__offset_boxes__borders_touch(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         search_box_radius = self.num_class(7)
         
@@ -329,7 +330,7 @@ class BaseMethods(object):
             self.assertBoxesTouch(boxes, 5, 5)
     
     def test__offset_boxes__borders_touch__fewer_boxes(self):
-        self.tiler = self.tiler_3
+        self.tiler = self.tiler_6
         
         search_box_radius = self.num_class(7)
         
@@ -341,7 +342,7 @@ class BaseMethods(object):
             self.assertBoxesTouch(boxes, 3, 3)
     
     def test__offset_boxes__borders_touch__rectangle(self):
-        self.tiler = self.tiler_2
+        self.tiler = self.tiler_4
         
         height = self.num_class(13)
         width = self.num_class(5)
